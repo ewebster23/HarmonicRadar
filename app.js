@@ -70,6 +70,25 @@ const STAFF_STEP_MAP = {
   10: { stepOffset: 6, accidental: '♭' }, // B♭
   11: { stepOffset: 6, accidental: '' } // B
 };
+const LETTER_ORDER = ['C', 'D', 'E', 'F', 'G', 'A', 'B'];
+const LETTER_TO_PITCH_CLASS = new Map([
+  ['C', 0],
+  ['D', 2],
+  ['E', 4],
+  ['F', 5],
+  ['G', 7],
+  ['A', 9],
+  ['B', 11]
+]);
+const LETTER_TO_STEP_OFFSET = new Map([
+  ['C', 0],
+  ['D', 1],
+  ['E', 2],
+  ['F', 3],
+  ['G', 4],
+  ['A', 5],
+  ['B', 6]
+]);
 const COMPUTER_KEY_SEQUENCE = ['a', 'w', 's', 'e', 'd', 'f', 't', 'g', 'y', 'h', 'u', 'j', 'k', 'o', 'l', 'p'];
 const COMPUTER_KEY_BASE_NOTE = 60; // C4
 
@@ -82,6 +101,7 @@ const computerKeyToNote = new Map(
 let typingSoundEnabled = false;
 let audioContext = null;
 const activeTypingVoices = new Map();
+let staffSpellingContext = null;
 
 function normalizePitchClass(value) {
   return ((value % 12) + 12) % 12;
@@ -91,11 +111,17 @@ function labelPitchClass(pitchClass) {
   return NOTE_LABELS[normalizePitchClass(pitchClass)];
 }
 
+function midiNoteToName(noteNumber) {
+  const pitchName = labelPitchClass(noteNumber);
+  const octave = Math.floor(noteNumber / 12) - 1;
+  return `${pitchName}${octave}`;
+}
+
 function isBlackKey(pitchClass) {
   return !WHITE_PITCH_CLASSES.has(normalizePitchClass(pitchClass));
 }
 
-function midiNoteToStaffData(noteNumber) {
+function midiNoteToStaffDataDefault(noteNumber) {
   const pitchClass = normalizePitchClass(noteNumber);
   const octave = Math.floor(noteNumber / 12) - 1;
   const map = STAFF_STEP_MAP[pitchClass];
@@ -105,6 +131,184 @@ function midiNoteToStaffData(noteNumber) {
 
 function midiNoteToFrequency(noteNumber) {
   return 440 * Math.pow(2, (noteNumber - 69) / 12);
+}
+
+function accidentalCountToSymbols(accidentalCount) {
+  if (accidentalCount === 0) {
+    return '';
+  }
+
+  if (accidentalCount > 0) {
+    return '♯'.repeat(accidentalCount);
+  }
+
+  return '♭'.repeat(Math.abs(accidentalCount));
+}
+
+function parseSpelledRoot(text) {
+  if (!text) {
+    return null;
+  }
+
+  const match = text.match(/^([A-Ga-g])([♭♯b#]{0,4})/u);
+  if (!match) {
+    return null;
+  }
+
+  const letter = match[1].toUpperCase();
+  const accidentalText = match[2] || '';
+  let accidentalCount = 0;
+  for (const symbol of accidentalText) {
+    if (symbol === '♭' || symbol === 'b') {
+      accidentalCount -= 1;
+    } else if (symbol === '♯' || symbol === '#') {
+      accidentalCount += 1;
+    }
+  }
+
+  const pitchClass = normalizePitchClass(LETTER_TO_PITCH_CLASS.get(letter) + accidentalCount);
+  return { letter, accidentalCount, pitchClass };
+}
+
+function chooseAccidentalCountForLetter(targetPitchClass, letter, preferredAccidentalCount) {
+  const naturalPitchClass = LETTER_TO_PITCH_CLASS.get(letter);
+  const base = normalizePitchClass(targetPitchClass - naturalPitchClass);
+  let signedBase = base > 6 ? base - 12 : base;
+  let best = signedBase;
+  let bestDistance = Math.abs(best - preferredAccidentalCount);
+
+  for (const octaveShift of [-12, 0, 12]) {
+    const candidate = signedBase + octaveShift;
+    if (Math.abs(candidate) > 4) {
+      continue;
+    }
+    const distance = Math.abs(candidate - preferredAccidentalCount);
+    if (distance < bestDistance) {
+      best = candidate;
+      bestDistance = distance;
+    }
+  }
+
+  return best;
+}
+
+function getIntervalSpellingSpec(intervalClass, context) {
+  if (intervalClass === 0) {
+    return { degree: 1, accidentalCount: 0 };
+  }
+  if (intervalClass === 1) {
+    return { degree: 2, accidentalCount: -1 };
+  }
+  if (intervalClass === 2) {
+    return { degree: 2, accidentalCount: 0 };
+  }
+  if (intervalClass === 3) {
+    if (context.hasMajorThird) {
+      return { degree: 2, accidentalCount: 1 };
+    }
+    return { degree: 3, accidentalCount: -1 };
+  }
+  if (intervalClass === 4) {
+    return { degree: 3, accidentalCount: 0 };
+  }
+  if (intervalClass === 5) {
+    return { degree: 4, accidentalCount: 0 };
+  }
+  if (intervalClass === 6) {
+    if (context.preferSharpEleven) {
+      return { degree: 4, accidentalCount: 1 };
+    }
+    return { degree: 5, accidentalCount: -1 };
+  }
+  if (intervalClass === 7) {
+    return { degree: 5, accidentalCount: 0 };
+  }
+  if (intervalClass === 8) {
+    if (context.preferSharpFive) {
+      return { degree: 5, accidentalCount: 1 };
+    }
+    return { degree: 6, accidentalCount: -1 };
+  }
+  if (intervalClass === 9) {
+    if (context.preferDoubleFlatSeven) {
+      return { degree: 7, accidentalCount: -2 };
+    }
+    return { degree: 6, accidentalCount: 0 };
+  }
+  if (intervalClass === 10) {
+    return { degree: 7, accidentalCount: -1 };
+  }
+  return { degree: 7, accidentalCount: 0 };
+}
+
+function midiNoteToStaffDataWithContext(noteNumber, context) {
+  if (!context || !context.rootLetter) {
+    return midiNoteToStaffDataDefault(noteNumber);
+  }
+
+  const notePitchClass = normalizePitchClass(noteNumber);
+  const intervalClass = normalizePitchClass(notePitchClass - context.rootPitchClass);
+  const spec = getIntervalSpellingSpec(intervalClass, context);
+  const rootLetterIndex = LETTER_ORDER.indexOf(context.rootLetter);
+  const targetLetter = LETTER_ORDER[(rootLetterIndex + spec.degree - 1) % 7];
+  const accidentalCount = chooseAccidentalCountForLetter(notePitchClass, targetLetter, spec.accidentalCount);
+  const accidental = accidentalCountToSymbols(accidentalCount);
+  const naturalPitchClass = LETTER_TO_PITCH_CLASS.get(targetLetter);
+  const naturalMidi = noteNumber - accidentalCount;
+  const octave = Math.floor((naturalMidi - naturalPitchClass) / 12) - 1;
+  const stepOffset = LETTER_TO_STEP_OFFSET.get(targetLetter);
+  const step = (octave - 4) * 7 + stepOffset;
+
+  return { step, accidental };
+}
+
+function buildStaffSpellingContext(activeNotes, primaryCandidate = null) {
+  if (!activeNotes.length) {
+    return null;
+  }
+
+  let rootPitchClass = null;
+  let parsedRoot = null;
+
+  if (primaryCandidate && typeof primaryCandidate.rootPitchClass === 'number') {
+    rootPitchClass = normalizePitchClass(primaryCandidate.rootPitchClass);
+  }
+
+  if (primaryCandidate && primaryCandidate.fullName) {
+    parsedRoot = parseSpelledRoot(primaryCandidate.fullName);
+    if (rootPitchClass === null && parsedRoot) {
+      rootPitchClass = parsedRoot.pitchClass;
+    }
+  }
+
+  if (rootPitchClass === null) {
+    rootPitchClass = normalizePitchClass(activeNotes[0]);
+  }
+
+  if (!parsedRoot) {
+    parsedRoot = parseSpelledRoot(labelPitchClass(rootPitchClass));
+  }
+
+  if (!parsedRoot) {
+    return null;
+  }
+
+  const pitchClasses = getPitchClasses(activeNotes);
+  const intervals = new Set(getIntervalsFromRoot(rootPitchClass, pitchClasses));
+  const family = chooseFamily(intervals);
+  const hasMajorThird = intervals.has(4);
+  const hasPerfectFifth = intervals.has(7);
+  const hasSharpFive = intervals.has(8);
+  const hasFlatFive = intervals.has(6);
+
+  return {
+    rootPitchClass,
+    rootLetter: parsedRoot.letter,
+    hasMajorThird,
+    preferSharpEleven: hasPerfectFifth && !hasFlatFive,
+    preferSharpFive: family === 'aug' || (hasMajorThird && hasSharpFive && !hasPerfectFifth),
+    preferDoubleFlatSeven: family === 'dim' && intervals.has(9) && !intervals.has(10)
+  };
 }
 
 function formatTwoNoteInterval(noteA, noteB) {
@@ -430,7 +634,7 @@ function drawGrandStaff(activeNotes) {
   const notePositions = [];
 
   for (const note of sortedNotes) {
-    const { step, accidental } = midiNoteToStaffData(note);
+    const { step, accidental } = midiNoteToStaffDataWithContext(note, staffSpellingContext);
     let x = baseX;
     const previous = notePositions[notePositions.length - 1];
 
@@ -521,12 +725,14 @@ function drawKeyboard(activeNotes) {
   const blackHeight = height * 0.57;
 
   const activeSet = new Set(activeNotes);
+  const keyLabelPositions = new Map();
   let whiteIndex = 0;
   for (let note = KEYBOARD_NOTE_START; note <= KEYBOARD_NOTE_END; note += 1) {
     if (isBlackKey(note)) {
       continue;
     }
     const x = whiteIndex * whiteWidth;
+    keyLabelPositions.set(note, { x: x + whiteWidth / 2 });
     ctx.fillStyle = activeSet.has(note) ? '#efbb6f' : '#fffdf7';
     ctx.fillRect(x, 0, whiteWidth, height);
     ctx.strokeStyle = '#8a7860';
@@ -548,11 +754,60 @@ function drawKeyboard(activeNotes) {
     }
     const nextWhiteIndex = getWhiteKeyCount(KEYBOARD_NOTE_START, note);
     const x = nextWhiteIndex * whiteWidth - blackWidth / 2;
+    keyLabelPositions.set(note, { x: x + blackWidth / 2 });
     ctx.fillStyle = activeSet.has(note) ? '#de7a42' : '#1a2636';
     ctx.fillRect(x, 0, blackWidth, blackHeight);
     ctx.strokeStyle = '#131c2c';
     ctx.lineWidth = 1;
     drawSketchRect(ctx, x, 0, blackWidth, blackHeight, note * 0.17);
+  }
+
+  if (!activeNotes.length) {
+    return;
+  }
+
+  const labels = activeNotes
+    .filter((note) => keyLabelPositions.has(note))
+    .map((note) => ({
+      note,
+      x: keyLabelPositions.get(note).x,
+      text: midiNoteToName(note)
+    }))
+    .sort((left, right) => left.x - right.x);
+
+  ctx.font = `${10 * ratio}px ${JAZZ_TEXT_FONT_STACK}`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  const minSpacing = 30 * ratio;
+  let previousX = -Infinity;
+  let previousRow = 0;
+
+  for (const label of labels) {
+    let row = 0;
+    if (label.x - previousX < minSpacing) {
+      row = Math.min(previousRow + 1, 2);
+    }
+
+    const y = (10 + row * 12) * ratio;
+    const textWidth = ctx.measureText(label.text).width;
+    const padX = 4 * ratio;
+    const padY = 3 * ratio;
+    const boxWidth = textWidth + padX * 2;
+    const boxHeight = 12 * ratio;
+    const boxX = label.x - boxWidth / 2;
+    const boxY = y - boxHeight / 2;
+
+    ctx.fillStyle = '#fff7e7';
+    ctx.fillRect(boxX, boxY, boxWidth, boxHeight);
+    ctx.strokeStyle = '#9c8b72';
+    ctx.lineWidth = 1;
+    drawSketchRect(ctx, boxX, boxY, boxWidth, boxHeight, label.note * 0.21);
+
+    ctx.fillStyle = '#2c3a4f';
+    ctx.fillText(label.text, label.x, y + 0.4 * ratio);
+
+    previousX = label.x;
+    previousRow = row;
   }
 }
 
@@ -1522,12 +1777,14 @@ function getChordCandidates(activeNotes) {
 function updateChordDisplay() {
   const activeNotes = getSortedActiveNotes();
   if (!activeNotes.length) {
+    staffSpellingContext = null;
     chordNameEl.textContent = 'Tickle the keys';
     renderVisualizers();
     return;
   }
 
   if (activeNotes.length === 2) {
+    staffSpellingContext = buildStaffSpellingContext(activeNotes);
     chordNameEl.textContent = formatTwoNoteInterval(activeNotes[0], activeNotes[1]);
     renderVisualizers();
     return;
@@ -1536,12 +1793,14 @@ function updateChordDisplay() {
   const candidates = getChordCandidates(activeNotes);
 
   if (!candidates.length) {
+    staffSpellingContext = buildStaffSpellingContext(activeNotes);
     chordNameEl.textContent = '(unrecognized)';
     renderVisualizers();
     return;
   }
 
   const primary = candidates[0];
+  staffSpellingContext = buildStaffSpellingContext(activeNotes, primary);
   chordNameEl.textContent = primary.fullName;
   renderVisualizers();
 }
