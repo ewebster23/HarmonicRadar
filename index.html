@@ -9,13 +9,13 @@
 
     @font-face {
       font-family: "Finale Jazz Text";
-      src: local("Finale Jazz Text"), local("FinaleJazzText"), url("fonts/FinaleJazzText.otf") format("opentype");
+      src: local("Finale Jazz Text"), local("FinaleJazzText"), url("fonts/FinaleJazzText.otf?v=20260219") format("opentype");
       font-display: swap;
     }
 
     @font-face {
       font-family: "Finale Jazz";
-      src: local("Finale Jazz"), local("FinaleJazz"), url("fonts/FinaleJazz.otf") format("opentype");
+      src: local("Finale Jazz"), local("FinaleJazz"), url("fonts/FinaleJazz.otf?v=20260219") format("opentype");
       font-display: swap;
     }
 
@@ -31,7 +31,7 @@
       --accent-deep: #9d5118;
       --ok: #1f8f59;
       --warn: #a95c1d;
-      --jazz-text: "Finale Jazz Text", "Finale Jazz", "Comic Sans MS", cursive;
+      --jazz-text: "Finale Jazz Text", "Finale Jazz", "Bravura Text", "Noto Music", serif;
       --chord-text: "Cabin Sketch", "Kalam", "Patrick Hand", "Segoe UI Symbol", "Noto Sans Symbols 2", "DejaVu Sans", sans-serif;
       --jazz-music: "Finale Jazz", "Finale Jazz Text", "Bravura Text", "Noto Music", serif;
     }
@@ -61,6 +61,12 @@
     }
 
     body.app-locked .settings-toggle {
+      pointer-events: none;
+      opacity: 0;
+      transform: translateY(-6px);
+    }
+
+    body.app-locked .back-toggle {
       pointer-events: none;
       opacity: 0;
       transform: translateY(-6px);
@@ -157,6 +163,35 @@
       box-shadow: 0 3px 0 rgba(45, 26, 4, 0.3);
     }
 
+    .start-actions {
+      display: grid;
+      justify-items: center;
+      gap: 0.55rem;
+    }
+
+    .start-games-link {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border: 2px solid rgba(49, 31, 6, 0.4);
+      border-radius: 999px;
+      min-width: 9.5rem;
+      padding: 0.44rem 1.08rem;
+      font-family: var(--jazz-text);
+      font-size: clamp(1rem, 1.9vw, 1.2rem);
+      font-weight: 700;
+      text-decoration: none;
+      color: #30435f;
+      background: #fff5df;
+      box-shadow: 0 2px 0 rgba(45, 26, 4, 0.24);
+      transition: transform 120ms ease, box-shadow 120ms ease;
+    }
+
+    .start-games-link:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 3px 0 rgba(45, 26, 4, 0.24);
+    }
+
     .settings-toggle {
       position: fixed;
       top: 0.65rem;
@@ -175,6 +210,32 @@
       box-shadow: 0 2px 0 rgba(76, 59, 30, 0.25);
       transform: none;
       transition: transform 120ms ease, box-shadow 120ms ease;
+    }
+
+    .back-toggle {
+      position: fixed;
+      top: 0.65rem;
+      left: 0.72rem;
+      z-index: 34;
+      border: 2px solid rgba(76, 59, 30, 0.48);
+      border-radius: 999px;
+      height: 52px;
+      padding: 0 0.9rem;
+      min-width: 88px;
+      font-family: var(--jazz-text);
+      font-size: 1.05rem;
+      line-height: 1;
+      color: #7b4b1f;
+      background: #fff8ef;
+      cursor: pointer;
+      box-shadow: 0 2px 0 rgba(76, 59, 30, 0.25);
+      transform: none;
+      transition: transform 120ms ease, box-shadow 120ms ease, opacity 120ms ease;
+    }
+
+    .back-toggle:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 3px 0 rgba(76, 59, 30, 0.26);
     }
 
     .settings-toggle:hover {
@@ -428,6 +489,12 @@
         height: 46px;
         font-size: 1.45rem;
       }
+
+      .back-toggle {
+        height: 46px;
+        min-width: 78px;
+        font-size: 0.95rem;
+      }
     }
   </style>
 </head>
@@ -439,13 +506,14 @@
       <p class="start-copy">
         Connect a MIDI keyboard, or just start with your laptop keys and play right away.
       </p>
-      <p class="start-keymap">
-        Typing map: a w s e d f t g y h u j k o l p (chromatic from C).
-      </p>
-      <button id="startAppBtn" class="start-btn" type="button">Start</button>
+      <div class="start-actions">
+        <button id="startAppBtn" class="start-btn" type="button">Start</button>
+        <a class="start-games-link" href="./games.html">Explore Games</a>
+      </div>
     </div>
   </section>
 
+  <button id="backToStartBtn" class="back-toggle" type="button" aria-label="Back to start">Back</button>
   <button id="settingsToggle" class="settings-toggle" aria-label="Open settings">⚙</button>
   <div id="settingsBackdrop" class="settings-backdrop" hidden></div>
 
@@ -458,15 +526,10 @@
     <div class="settings-body">
       <button id="connectBtn" class="connect-btn" type="button">Connect MIDI</button>
       <div id="status" class="status warn">Not connected</div>
-      <p id="midiInfo" class="midi-info">Laptop keyboard is active. Use the keymap below.</p>
-
-      <div class="keymap">
-        <div class="inputs-label">Typing keys</div>
-        <p class="keymap-text">a w s e d f t g y h u j k o l p maps chromatically from C upward.</p>
-      </div>
+      <p id="midiInfo" class="midi-info">Laptop keyboard is active.</p>
 
       <div class="sound-setting">
-        <label class="sound-label" for="typingSoundToggle">Typing key sound</label>
+        <label class="sound-label" for="typingSoundToggle">Toggle Sound</label>
         <input id="typingSoundToggle" class="sound-toggle" type="checkbox" />
       </div>
 
@@ -499,6 +562,7 @@
     (function () {
       const overlay = document.getElementById('startOverlay');
       const startBtn = document.getElementById('startAppBtn');
+      const backBtn = document.getElementById('backToStartBtn');
 
       function unlockIntro() {
         if (overlay) {
@@ -511,13 +575,29 @@
         document.dispatchEvent(new CustomEvent('harmonicradar:start'));
       }
 
+      function lockIntro() {
+        if (overlay) {
+          overlay.hidden = false;
+          overlay.setAttribute('aria-hidden', 'false');
+        }
+        if (document.body) {
+          document.body.classList.add('app-locked');
+        }
+        document.dispatchEvent(new CustomEvent('harmonicradar:show-start'));
+      }
+
       if (startBtn) {
         startBtn.addEventListener('click', unlockIntro);
       }
 
+      if (backBtn) {
+        backBtn.addEventListener('click', lockIntro);
+      }
+
       window.__harmonicRadarStart = unlockIntro;
+      window.__harmonicRadarShowStart = lockIntro;
     })();
   </script>
-  <script src="./app.js?v=20260219"></script>
+  <script src="./app.js?v=20260219b"></script>
 </body>
 </html>

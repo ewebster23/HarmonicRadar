@@ -11,7 +11,6 @@ const inputsListEl = document.getElementById('inputsList');
 const staffCanvasEl = document.getElementById('staffCanvas');
 const keyboardCanvasEl = document.getElementById('keyboardCanvas');
 const startOverlayEl = document.getElementById('startOverlay');
-const startAppBtnEl = document.getElementById('startAppBtn');
 
 const NOTE_LABELS = ['C', 'D♭', 'D', 'E♭', 'E', 'F', 'F♯', 'G', 'A♭', 'A', 'B♭', 'B'];
 const INVERSION_NAMES = ['1st inversion', '2nd inversion', '3rd inversion', '4th inversion'];
@@ -470,6 +469,20 @@ function startApp() {
   }
 }
 
+function showStartOverlay() {
+  appStarted = false;
+  if (startOverlayEl) {
+    startOverlayEl.hidden = false;
+    startOverlayEl.setAttribute('aria-hidden', 'false');
+  }
+  if (typeof document !== 'undefined' && document.body) {
+    document.body.classList.add('app-locked');
+  }
+  closeSettingsPanel();
+  releaseComputerKeys();
+  stopAllTypingSound();
+}
+
 function renderInputs() {
   if (!inputsListEl) {
     return;
@@ -577,8 +590,8 @@ function drawKeyboardTriggerLabel(ctx, text, centerX, centerY, ratio, isBlackKey
 }
 
 function drawSketchWholeNote(ctx, x, y, ratio, seed) {
-  const outerRx = 8.7 * ratio;
-  const outerRy = 6.1 * ratio;
+  const outerRx = 9.7 * ratio;
+  const outerRy = 6.9 * ratio;
   const points = 18;
 
   function drawJitteredOval(radiusX, radiusY, jitterScale, passSeed, fill) {
@@ -653,7 +666,7 @@ function drawGrandStaff(activeNotes) {
   drawStaffLineSet(ctx, trebleLines, left, right);
   drawStaffLineSet(ctx, bassLines, left, right);
 
-  const clefX = left - 20 * ratio;
+  const clefX = left + 18 * ratio;
   const trebleCenterY = (trebleLines[0] + trebleLines[4]) / 2;
   const bassCenterY = (bassLines[0] + bassLines[4]) / 2;
 
@@ -784,7 +797,7 @@ function drawKeyboard(activeNotes) {
 
     if (normalizePitchClass(note) === 0) {
       ctx.fillStyle = '#7c6a4d';
-      ctx.font = `${9 * ratio}px sans-serif`;
+      ctx.font = `${9 * ratio}px ${JAZZ_TEXT_FONT_STACK}`;
       ctx.fillText(`C${Math.floor(note / 12) - 1}`, x + 2 * ratio, height - 5 * ratio);
     }
 
@@ -2091,12 +2104,9 @@ if (typingSoundToggleEl) {
   typingSoundToggleEl.addEventListener('change', handleTypingSoundToggleChange);
 }
 
-if (startAppBtnEl) {
-  startAppBtnEl.addEventListener('click', startApp);
-}
-
 if (typeof document !== 'undefined') {
   document.addEventListener('harmonicradar:start', startApp);
+  document.addEventListener('harmonicradar:show-start', showStartOverlay);
 }
 
 if (typeof window !== 'undefined') {
