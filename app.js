@@ -5,10 +5,8 @@ const settingsToggleEl = document.getElementById('settingsToggle');
 const settingsPanelEl = document.getElementById('settingsPanel');
 const settingsCloseEl = document.getElementById('settingsClose');
 const settingsBackdropEl = document.getElementById('settingsBackdrop');
+const typingSoundToggleEl = document.getElementById('typingSoundToggle');
 const chordNameEl = document.getElementById('chordName');
-const inversionBadgeEl = document.getElementById('inversionBadge');
-const chordDetailEl = document.getElementById('chordDetail');
-const alternativesListEl = document.getElementById('alternativesList');
 const inputsListEl = document.getElementById('inputsList');
 const staffCanvasEl = document.getElementById('staffCanvas');
 const keyboardCanvasEl = document.getElementById('keyboardCanvas');
@@ -30,6 +28,7 @@ const COLOR_ORDER = [
   'add13',
   'add2',
   'add4',
+  'add6',
   'add♭3',
   'add3',
   'add♭5',
@@ -41,6 +40,22 @@ const COLOR_ORDER = [
 const KEYBOARD_NOTE_START = 36; // C2
 const KEYBOARD_NOTE_END = 96; // C7
 const WHITE_PITCH_CLASSES = new Set([0, 2, 4, 5, 7, 9, 11]);
+const JAZZ_TEXT_FONT_STACK = '"Finale Jazz Text","Finale Jazz","Bravura Text","Noto Music",serif';
+const JAZZ_MUSIC_FONT_STACK = '"Finale Jazz","Finale Jazz Text","Bravura Text","Noto Music",serif';
+const SIMPLE_INTERVAL_NAMES = new Map([
+  [0, 'unison'],
+  [1, 'minor 2nd'],
+  [2, 'major 2nd'],
+  [3, 'minor 3rd'],
+  [4, 'major 3rd'],
+  [5, 'perfect 4th'],
+  [6, 'tritone'],
+  [7, 'perfect 5th'],
+  [8, 'minor 6th'],
+  [9, 'major 6th'],
+  [10, 'minor 7th'],
+  [11, 'major 7th']
+]);
 const STAFF_STEP_MAP = {
   0: { stepOffset: 0, accidental: '' }, // C
   1: { stepOffset: 1, accidental: '♭' }, // D♭
@@ -64,6 +79,9 @@ const heldComputerKeys = new Set();
 const computerKeyToNote = new Map(
   COMPUTER_KEY_SEQUENCE.map((key, index) => [key, COMPUTER_KEY_BASE_NOTE + index])
 );
+let typingSoundEnabled = false;
+let audioContext = null;
+const activeTypingVoices = new Map();
 
 function normalizePitchClass(value) {
   return ((value % 12) + 12) % 12;
@@ -77,18 +95,35 @@ function isBlackKey(pitchClass) {
   return !WHITE_PITCH_CLASSES.has(normalizePitchClass(pitchClass));
 }
 
-function midiNoteToName(noteNumber) {
-  const pitchName = labelPitchClass(noteNumber);
-  const octave = Math.floor(noteNumber / 12) - 1;
-  return `${pitchName}${octave}`;
-}
-
 function midiNoteToStaffData(noteNumber) {
   const pitchClass = normalizePitchClass(noteNumber);
   const octave = Math.floor(noteNumber / 12) - 1;
   const map = STAFF_STEP_MAP[pitchClass];
   const step = (octave - 4) * 7 + map.stepOffset;
   return { step, accidental: map.accidental };
+}
+
+function midiNoteToFrequency(noteNumber) {
+  return 440 * Math.pow(2, (noteNumber - 69) / 12);
+}
+
+function formatTwoNoteInterval(noteA, noteB) {
+  const lowNote = Math.min(noteA, noteB);
+  const highNote = Math.max(noteA, noteB);
+  const rootName = labelPitchClass(lowNote);
+  const semitoneDistance = highNote - lowNote;
+  const intervalClass = normalizePitchClass(semitoneDistance);
+
+  if (semitoneDistance === 0) {
+    return `${rootName} unison`;
+  }
+
+  if (intervalClass === 0) {
+    return `${rootName} octave`;
+  }
+
+  const intervalName = SIMPLE_INTERVAL_NAMES.get(intervalClass) || `${intervalClass} semitones`;
+  return `${rootName} ${intervalName}`;
 }
 
 function resizeCanvasForDisplay(canvas) {
@@ -118,6 +153,98 @@ function setMidiInfo(text) {
     return;
   }
   midiInfoEl.textContent = text;
+}
+
+function ensureAudioContext() {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+
+  const AudioCtor = window.AudioContext || window.webkitAudioContext;
+  if (!AudioCtor) {
+    return null;
+  }
+
+  if (!audioContext) {
+    audioContext = new AudioCtor();
+  }
+
+  return audioContext;
+}
+
+function startTypingSound(noteNumber) {
+  if (!typingSoundEnabled || activeTypingVoices.has(noteNumber)) {
+    return;
+  }
+
+  const ctx = ensureAudioContext();
+  if (!ctx) {
+    return;
+  }
+
+  if (ctx.state === 'suspended') {
+    ctx.resume().catch(() => {});
+  }
+
+  const now = ctx.currentTime;
+  const oscillator = ctx.createOscillator();
+  const gainNode = ctx.createGain();
+
+  oscillator.type = 'triangle';
+  oscillator.frequency.setValueAtTime(midiNoteToFrequency(noteNumber), now);
+  gainNode.gain.setValueAtTime(0.0001, now);
+  gainNode.gain.exponentialRampToValueAtTime(0.07, now + 0.02);
+  gainNode.gain.exponentialRampToValueAtTime(0.05, now + 0.09);
+
+  oscillator.connect(gainNode);
+  gainNode.connect(ctx.destination);
+  oscillator.start(now);
+
+  activeTypingVoices.set(noteNumber, { oscillator, gainNode });
+}
+
+function stopTypingSound(noteNumber) {
+  const voice = activeTypingVoices.get(noteNumber);
+  if (!voice) {
+    return;
+  }
+
+  const ctx = ensureAudioContext();
+  if (!ctx) {
+    activeTypingVoices.delete(noteNumber);
+    return;
+  }
+
+  const now = ctx.currentTime;
+  const currentGain = Math.max(voice.gainNode.gain.value, 0.0001);
+  voice.gainNode.gain.cancelScheduledValues(now);
+  voice.gainNode.gain.setValueAtTime(currentGain, now);
+  voice.gainNode.gain.exponentialRampToValueAtTime(0.0001, now + 0.085);
+  voice.oscillator.stop(now + 0.095);
+  voice.oscillator.onended = () => {
+    voice.oscillator.disconnect();
+    voice.gainNode.disconnect();
+  };
+
+  activeTypingVoices.delete(noteNumber);
+}
+
+function stopAllTypingSound() {
+  for (const noteNumber of [...activeTypingVoices.keys()]) {
+    stopTypingSound(noteNumber);
+  }
+}
+
+function setTypingSoundEnabled(enabled) {
+  typingSoundEnabled = enabled;
+  if (typingSoundEnabled) {
+    const ctx = ensureAudioContext();
+    if (ctx && ctx.state === 'suspended') {
+      ctx.resume().catch(() => {});
+    }
+  } else {
+    stopAllTypingSound();
+  }
 }
 
 function renderInputs() {
@@ -202,6 +329,44 @@ function drawSketchRect(ctx, x, y, width, height, seed) {
   ctx.stroke();
 }
 
+function drawSketchWholeNote(ctx, x, y, ratio, seed) {
+  const outerRx = 8.7 * ratio;
+  const outerRy = 6.1 * ratio;
+  const points = 18;
+
+  function drawJitteredOval(radiusX, radiusY, jitterScale, passSeed, fill) {
+    ctx.beginPath();
+    for (let i = 0; i <= points; i += 1) {
+      const t = (i / points) * Math.PI * 2;
+      const jitter = (pseudoRandom(passSeed + i * 0.91) - 0.5) * jitterScale * ratio;
+      const px = Math.cos(t) * (radiusX + jitter);
+      const py = Math.sin(t) * (radiusY + jitter * 0.72);
+      if (i === 0) {
+        ctx.moveTo(px, py);
+      } else {
+        ctx.lineTo(px, py);
+      }
+    }
+    ctx.closePath();
+    if (fill) {
+      ctx.fill();
+    }
+    ctx.stroke();
+  }
+
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(-0.28 + (pseudoRandom(seed * 0.07) - 0.5) * 0.08);
+  ctx.lineWidth = 1.45 * ratio;
+  ctx.strokeStyle = '#233247';
+  ctx.fillStyle = '#fff7ea';
+
+  drawJitteredOval(outerRx, outerRy, 0.58, seed + 1.1, true);
+  drawJitteredOval(outerRx - 0.25 * ratio, outerRy - 0.22 * ratio, 0.42, seed + 2.7, false);
+
+  ctx.restore();
+}
+
 function drawStaffLineSet(ctx, yValues, left, right) {
   ctx.strokeStyle = '#6f7d90';
   ctx.lineWidth = 1.2;
@@ -233,7 +398,7 @@ function drawGrandStaff(activeNotes) {
   const left = marginX;
   const right = width - marginX;
   const middleCY = Math.round(height * 0.5);
-  const stepHeight = 8.2 * ratio;
+  const stepHeight = 10.1 * ratio;
 
   const trebleLines = [2, 4, 6, 8, 10].map((step) => middleCY - step * stepHeight);
   const bassLines = [-10, -8, -6, -4, -2].map((step) => middleCY - step * stepHeight);
@@ -248,17 +413,14 @@ function drawGrandStaff(activeNotes) {
   ctx.fillStyle = '#2f4057';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.font = `${40 * ratio}px serif`;
+  ctx.font = `${40 * ratio}px ${JAZZ_MUSIC_FONT_STACK}`;
   ctx.fillText('𝄞', clefX, trebleCenterY + 1.5 * ratio);
-  ctx.font = `${34 * ratio}px serif`;
+  ctx.font = `${34 * ratio}px ${JAZZ_MUSIC_FONT_STACK}`;
   ctx.fillText('𝄢', clefX, bassCenterY + 1.5 * ratio);
   ctx.textAlign = 'left';
   ctx.textBaseline = 'alphabetic';
 
   if (!activeNotes.length) {
-    ctx.fillStyle = '#6f7d90';
-    ctx.font = `${12 * ratio}px sans-serif`;
-    ctx.fillText('Play notes to display them on staff.', left, height - 12 * ratio);
     return;
   }
 
@@ -279,6 +441,10 @@ function drawGrandStaff(activeNotes) {
 
     notePositions.push({ note, step, accidental, x });
   }
+
+  const accidentalColumnX = notePositions.reduce((minX, noteData) => (
+    Math.min(minX, noteData.x)
+  ), baseX) - 15 * ratio;
 
   for (const noteData of notePositions) {
     const { step, accidental, x } = noteData;
@@ -309,22 +475,14 @@ function drawGrandStaff(activeNotes) {
 
     if (accidental) {
       ctx.fillStyle = '#2d3e57';
-      ctx.font = `${14 * ratio}px serif`;
-      ctx.fillText(accidental, x - 16 * ratio, y + 5 * ratio);
+      ctx.font = `${14 * ratio}px ${JAZZ_TEXT_FONT_STACK}`;
+      ctx.textAlign = 'right';
+      ctx.fillText(accidental, accidentalColumnX, y + 5 * ratio);
+      ctx.textAlign = 'left';
     }
 
-    // Whole notehead (hollow) without stem.
-    ctx.save();
-    ctx.translate(x, y);
-    ctx.rotate(-0.28);
-    ctx.fillStyle = '#fff9ef';
-    ctx.strokeStyle = '#233247';
-    ctx.lineWidth = 1.6 * ratio;
-    ctx.beginPath();
-    ctx.ellipse(0, 0, 8.7 * ratio, 6.1 * ratio, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.stroke();
-    ctx.restore();
+    // Whole notehead (hollow) without stem, hand-drawn style.
+    drawSketchWholeNote(ctx, x, y, ratio, noteData.note * 0.37 + step * 0.19);
   }
 }
 
@@ -753,7 +911,8 @@ function classifyNonCoreInterval(interval, context) {
     hasSeventh,
     hasMajorThird,
     high9,
-    high11
+    high11,
+    high13
   } = context;
 
   if (interval === 1) {
@@ -761,10 +920,13 @@ function classifyNonCoreInterval(interval, context) {
   }
 
   if (interval === 2) {
-    if (hasSeventh) {
-      return { type: 'natural', token: 9 };
+    if (high9) {
+      if (hasSeventh) {
+        return { type: 'natural', token: 9 };
+      }
+      return { type: 'add', token: 'add9' };
     }
-    return { type: 'add', token: high9 ? 'add9' : 'add2' };
+    return { type: 'add', token: 'add2' };
   }
 
   if (interval === 3) {
@@ -782,13 +944,16 @@ function classifyNonCoreInterval(interval, context) {
   }
 
   if (interval === 5) {
-    if (hasSeventh) {
-      return { type: 'natural', token: 11 };
-    }
-    if (family === 'sus4') {
+    if (high11) {
+      if (hasSeventh) {
+        return { type: 'natural', token: 11 };
+      }
+      if (family === 'sus4') {
+        return { type: 'add', token: 'add11' };
+      }
       return { type: 'add', token: 'add11' };
     }
-    return { type: 'add', token: high11 ? 'add11' : 'add4' };
+    return { type: 'add', token: 'add4' };
   }
 
   if (interval === 6) {
@@ -810,10 +975,13 @@ function classifyNonCoreInterval(interval, context) {
   }
 
   if (interval === 9) {
-    if (hasSeventh) {
-      return { type: 'natural', token: 13 };
+    if (high13) {
+      if (hasSeventh) {
+        return { type: 'natural', token: 13 };
+      }
+      return { type: 'add', token: 'add13' };
     }
-    return { type: 'add', token: 'add13' };
+    return { type: 'add', token: 'add6' };
   }
 
   if (interval === 10) {
@@ -927,6 +1095,7 @@ function buildIntervalFallbackCandidate(rootPitchClass, activeNotes, pitchClasse
   const { coreIntervals, symbol: baseSymbol, inversionFamily } = buildFallbackCoreAndSymbol(fallbackFamily, intervals);
   const high9 = hasUpperExtension(rootPitchClass, 2, activeNotes);
   const high11 = hasUpperExtension(rootPitchClass, 5, activeNotes);
+  const high13 = hasUpperExtension(rootPitchClass, 9, activeNotes);
   const hasMajorThird = intervals.has(4);
   const hasSeventh = coreIntervals.has(10) || coreIntervals.has(11) || intervals.has(10) || intervals.has(11);
   const naturalExtensions = [];
@@ -943,7 +1112,8 @@ function buildIntervalFallbackCandidate(rootPitchClass, activeNotes, pitchClasse
       hasSeventh,
       hasMajorThird,
       high9,
-      high11
+      high11,
+      high13
     });
     if (!tokenInfo) {
       continue;
@@ -1071,6 +1241,7 @@ function buildRootCandidate(rootPitchClass, activeNotes, pitchClasses, bassPitch
   const hasMajorThird = intervals.has(4);
   const high9 = hasUpperExtension(rootPitchClass, 2, activeNotes);
   const high11 = hasUpperExtension(rootPitchClass, 5, activeNotes);
+  const high13 = hasUpperExtension(rootPitchClass, 9, activeNotes);
 
   const naturalExtensions = [];
   const alteredExtensions = [];
@@ -1086,7 +1257,8 @@ function buildRootCandidate(rootPitchClass, activeNotes, pitchClasses, bassPitch
       hasSeventh,
       hasMajorThird,
       high9,
-      high11
+      high11,
+      high13
     });
     if (!tokenInfo) {
       continue;
@@ -1347,52 +1519,30 @@ function getChordCandidates(activeNotes) {
   return deduped;
 }
 
-function renderAlternativeChords(candidates) {
-  alternativesListEl.innerHTML = '';
-
-  const alternatives = candidates.slice(1, 7);
-  if (!alternatives.length) {
-    const item = document.createElement('li');
-    item.textContent = '(none)';
-    alternativesListEl.appendChild(item);
-    return;
-  }
-
-  for (const candidate of alternatives) {
-    const item = document.createElement('li');
-    item.textContent = candidate.fullName;
-    alternativesListEl.appendChild(item);
-  }
-}
-
 function updateChordDisplay() {
   const activeNotes = getSortedActiveNotes();
   if (!activeNotes.length) {
-    chordNameEl.textContent = '(none)';
-    inversionBadgeEl.textContent = 'No chord';
-    chordDetailEl.textContent = 'Hold notes to detect practical jazz/pop chord spellings.';
-    renderAlternativeChords([]);
+    chordNameEl.textContent = 'Tickle the keys';
+    renderVisualizers();
+    return;
+  }
+
+  if (activeNotes.length === 2) {
+    chordNameEl.textContent = formatTwoNoteInterval(activeNotes[0], activeNotes[1]);
     renderVisualizers();
     return;
   }
 
   const candidates = getChordCandidates(activeNotes);
-  const heldNotes = activeNotes.map((noteNumber) => midiNoteToName(noteNumber)).join(', ');
 
   if (!candidates.length) {
     chordNameEl.textContent = '(unrecognized)';
-    inversionBadgeEl.textContent = 'No match';
-    chordDetailEl.textContent = `Held notes: ${heldNotes}`;
-    renderAlternativeChords([]);
     renderVisualizers();
     return;
   }
 
   const primary = candidates[0];
   chordNameEl.textContent = primary.fullName;
-  inversionBadgeEl.textContent = primary.inversionLabel;
-  chordDetailEl.textContent = `Held notes: ${heldNotes}`;
-  renderAlternativeChords(candidates);
   renderVisualizers();
 }
 
@@ -1495,6 +1645,13 @@ function closeSettingsPanel() {
   setSettingsOpen(false);
 }
 
+function handleTypingSoundToggleChange() {
+  if (!typingSoundToggleEl) {
+    return;
+  }
+  setTypingSoundEnabled(typingSoundToggleEl.checked);
+}
+
 function isTypingTarget(target) {
   if (!target) {
     return false;
@@ -1533,6 +1690,7 @@ function handleComputerKeyDown(event) {
 
   heldComputerKeys.add(key);
   incrementNote(noteNumber);
+  startTypingSound(noteNumber);
   updateChordDisplay();
 }
 
@@ -1550,6 +1708,7 @@ function handleComputerKeyUp(event) {
 
   heldComputerKeys.delete(key);
   decrementNote(noteNumber);
+  stopTypingSound(noteNumber);
   updateChordDisplay();
 }
 
@@ -1562,6 +1721,7 @@ function releaseComputerKeys() {
     const noteNumber = computerKeyToNote.get(key);
     if (typeof noteNumber === 'number') {
       decrementNote(noteNumber);
+      stopTypingSound(noteNumber);
     }
   }
   heldComputerKeys.clear();
@@ -1582,6 +1742,17 @@ if (settingsCloseEl) {
 
 if (settingsBackdropEl) {
   settingsBackdropEl.addEventListener('click', closeSettingsPanel);
+}
+
+if (typingSoundToggleEl) {
+  const supportsWebAudio = typeof window !== 'undefined' && Boolean(window.AudioContext || window.webkitAudioContext);
+  typingSoundToggleEl.checked = false;
+  typingSoundToggleEl.disabled = !supportsWebAudio;
+  if (!supportsWebAudio) {
+    typingSoundToggleEl.title = 'Web Audio is not available in this browser.';
+  }
+  setTypingSoundEnabled(typingSoundToggleEl.checked);
+  typingSoundToggleEl.addEventListener('change', handleTypingSoundToggleChange);
 }
 
 if (typeof window !== 'undefined') {
