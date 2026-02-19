@@ -10,6 +10,8 @@ const chordNameEl = document.getElementById('chordName');
 const inputsListEl = document.getElementById('inputsList');
 const staffCanvasEl = document.getElementById('staffCanvas');
 const keyboardCanvasEl = document.getElementById('keyboardCanvas');
+const startOverlayEl = document.getElementById('startOverlay');
+const startAppBtnEl = document.getElementById('startAppBtn');
 
 const NOTE_LABELS = ['C', 'D♭', 'D', 'E♭', 'E', 'F', 'F♯', 'G', 'A♭', 'A', 'B♭', 'B'];
 const INVERSION_NAMES = ['1st inversion', '2nd inversion', '3rd inversion', '4th inversion'];
@@ -102,6 +104,7 @@ let typingSoundEnabled = false;
 let audioContext = null;
 const activeTypingVoices = new Map();
 let staffSpellingContext = null;
+let appStarted = !(startOverlayEl && !startOverlayEl.hidden);
 
 function normalizePitchClass(value) {
   return ((value % 12) + 12) % 12;
@@ -448,6 +451,17 @@ function setTypingSoundEnabled(enabled) {
     }
   } else {
     stopAllTypingSound();
+  }
+}
+
+function startApp() {
+  appStarted = true;
+  if (startOverlayEl) {
+    startOverlayEl.hidden = true;
+    startOverlayEl.setAttribute('aria-hidden', 'true');
+  }
+  if (typeof document !== 'undefined' && document.body) {
+    document.body.classList.remove('app-locked');
   }
 }
 
@@ -1928,6 +1942,10 @@ function handleComputerKeyDown(event) {
     return;
   }
 
+  if (!appStarted) {
+    return;
+  }
+
   if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey) {
     return;
   }
@@ -1954,6 +1972,10 @@ function handleComputerKeyDown(event) {
 }
 
 function handleComputerKeyUp(event) {
+  if (!appStarted) {
+    return;
+  }
+
   const key = event.key.toLowerCase();
   const noteNumber = computerKeyToNote.get(key);
   if (typeof noteNumber !== 'number') {
@@ -2014,11 +2036,19 @@ if (typingSoundToggleEl) {
   typingSoundToggleEl.addEventListener('change', handleTypingSoundToggleChange);
 }
 
+if (startAppBtnEl) {
+  startAppBtnEl.addEventListener('click', startApp);
+}
+
 if (typeof window !== 'undefined') {
   window.addEventListener('resize', renderVisualizers);
   window.addEventListener('keydown', handleComputerKeyDown);
   window.addEventListener('keyup', handleComputerKeyUp);
   window.addEventListener('blur', releaseComputerKeys);
+}
+
+if (!appStarted && startOverlayEl) {
+  startOverlayEl.setAttribute('aria-hidden', 'false');
 }
 
 renderInputs();
