@@ -100,11 +100,16 @@ const heldComputerKeys = new Set();
 const computerKeyToNote = new Map(
   COMPUTER_KEY_SEQUENCE.map((key, index) => [key, COMPUTER_KEY_BASE_NOTE + index])
 );
+const noteToComputerKey = new Map(
+  [...computerKeyToNote.entries()].map(([key, noteNumber]) => [noteNumber, key.toUpperCase()])
+);
 let typingSoundEnabled = false;
 let audioContext = null;
 const activeTypingVoices = new Map();
 let staffSpellingContext = null;
-let appStarted = !(startOverlayEl && !startOverlayEl.hidden);
+let appStarted = typeof document !== 'undefined'
+  ? !document.body.classList.contains('app-locked')
+  : true;
 
 function normalizePitchClass(value) {
   return ((value % 12) + 12) % 12;
@@ -547,6 +552,30 @@ function drawSketchRect(ctx, x, y, width, height, seed) {
   ctx.stroke();
 }
 
+function drawKeyboardTriggerLabel(ctx, text, centerX, centerY, ratio, isBlackKeyColor, seed) {
+  ctx.save();
+  ctx.font = `${10 * ratio}px ${JAZZ_TEXT_FONT_STACK}`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+
+  const textWidth = ctx.measureText(text).width;
+  const padX = 4 * ratio;
+  const boxWidth = textWidth + padX * 2;
+  const boxHeight = 12 * ratio;
+  const boxX = centerX - boxWidth / 2;
+  const boxY = centerY - boxHeight / 2;
+
+  ctx.fillStyle = isBlackKeyColor ? 'rgba(255, 247, 230, 0.95)' : '#f4e2bf';
+  ctx.fillRect(boxX, boxY, boxWidth, boxHeight);
+  ctx.strokeStyle = isBlackKeyColor ? '#ceb78f' : '#9a8768';
+  ctx.lineWidth = 1;
+  drawSketchRect(ctx, boxX, boxY, boxWidth, boxHeight, seed);
+
+  ctx.fillStyle = isBlackKeyColor ? '#1a2636' : '#2e3d53';
+  ctx.fillText(text, centerX, centerY + 0.3 * ratio);
+  ctx.restore();
+}
+
 function drawSketchWholeNote(ctx, x, y, ratio, seed) {
   const outerRx = 8.7 * ratio;
   const outerRy = 6.1 * ratio;
@@ -759,6 +788,19 @@ function drawKeyboard(activeNotes) {
       ctx.fillText(`C${Math.floor(note / 12) - 1}`, x + 2 * ratio, height - 5 * ratio);
     }
 
+    const triggerKey = noteToComputerKey.get(note);
+    if (triggerKey) {
+      drawKeyboardTriggerLabel(
+        ctx,
+        triggerKey,
+        x + whiteWidth / 2,
+        height - 16 * ratio,
+        ratio,
+        false,
+        note * 0.31
+      );
+    }
+
     whiteIndex += 1;
   }
 
@@ -774,6 +816,19 @@ function drawKeyboard(activeNotes) {
     ctx.strokeStyle = '#131c2c';
     ctx.lineWidth = 1;
     drawSketchRect(ctx, x, 0, blackWidth, blackHeight, note * 0.17);
+
+    const triggerKey = noteToComputerKey.get(note);
+    if (triggerKey) {
+      drawKeyboardTriggerLabel(
+        ctx,
+        triggerKey,
+        x + blackWidth / 2,
+        blackHeight - 12 * ratio,
+        ratio,
+        true,
+        note * 0.39
+      );
+    }
   }
 
   if (!activeNotes.length) {
@@ -2038,6 +2093,10 @@ if (typingSoundToggleEl) {
 
 if (startAppBtnEl) {
   startAppBtnEl.addEventListener('click', startApp);
+}
+
+if (typeof document !== 'undefined') {
+  document.addEventListener('harmonicradar:start', startApp);
 }
 
 if (typeof window !== 'undefined') {
