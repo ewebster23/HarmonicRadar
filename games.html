@@ -807,7 +807,7 @@
 
     function drawFinaleWholeNote(ctx, x, y, ratio, colors = null) {
       const strokeColor = colors && colors.stroke ? colors.stroke : '#233247';
-      const fillColor = colors && colors.fill ? colors.fill : '#fff7ea';
+      const fillColor = colors && colors.fill ? colors.fill : strokeColor;
       const glyph = '\uE0A2'; // SMuFL whole-note notehead
       const fontSize = 52 * ratio;
 
@@ -815,11 +815,8 @@
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.font = `${fontSize}px ${JAZZ_MUSIC_FONT_STACK}`;
-      ctx.lineWidth = 1;
-      ctx.strokeStyle = strokeColor;
       ctx.fillStyle = fillColor;
       ctx.fillText(glyph, x, y);
-      ctx.strokeText(glyph, x, y);
       ctx.restore();
     }
 
@@ -953,7 +950,7 @@
 
       if (targetStaff.accidental) {
         ctx.fillStyle = '#21324d';
-        ctx.font = `${17 * ratio}px ${JAZZ_TEXT_FONT_STACK}`;
+        ctx.font = `${17 * ratio}px ${JAZZ_MUSIC_FONT_STACK}`;
         ctx.textAlign = 'right';
         ctx.textBaseline = 'middle';
         ctx.fillText(targetStaff.accidental, noteX - 16 * ratio, targetY + 1 * ratio);
@@ -964,17 +961,17 @@
         noteX,
         targetY,
         ratio,
-        { stroke: '#233247', fill: '#fff7ea' }
+        { stroke: '#233247', fill: '#233247' }
       );
 
       if (playedStaff) {
         const playedY = bottomLineY - playedStaff.step * stepHeight;
         const playedStroke = feedbackState === 'good' ? '#148a41' : '#b31217';
-        const playedFill = '#fff7ea';
+        const playedFill = playedStroke;
 
         if (playedStaff.accidental) {
           ctx.fillStyle = playedStroke;
-          ctx.font = `${17 * ratio}px ${JAZZ_TEXT_FONT_STACK}`;
+          ctx.font = `${17 * ratio}px ${JAZZ_MUSIC_FONT_STACK}`;
           ctx.textAlign = 'right';
           ctx.textBaseline = 'middle';
           ctx.fillText(playedStaff.accidental, noteX - 16 * ratio, playedY + 1 * ratio);

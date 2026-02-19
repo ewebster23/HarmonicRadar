@@ -106,6 +106,7 @@ let typingSoundEnabled = false;
 let audioContext = null;
 const activeTypingVoices = new Map();
 let staffSpellingContext = null;
+let musicFontReady = false;
 let appStarted = typeof document !== 'undefined'
   ? !document.body.classList.contains('app-locked')
   : true;
@@ -458,6 +459,39 @@ function setTypingSoundEnabled(enabled) {
   }
 }
 
+function refreshMusicFontReady() {
+  if (!document.fonts || typeof document.fonts.check !== 'function') {
+    musicFontReady = true;
+    return;
+  }
+  musicFontReady = document.fonts.check('64px "Finale Jazz"', '\uE050')
+    && document.fonts.check('48px "Finale Jazz"', '\uE0A2')
+    && document.fonts.check('58px "Finale Jazz"', '\uE062');
+}
+
+function primeMusicFonts() {
+  refreshMusicFontReady();
+  if (musicFontReady || !document.fonts || typeof document.fonts.load !== 'function') {
+    return;
+  }
+
+  Promise.all([
+    document.fonts.load('64px "Finale Jazz"', '\uE050'),
+    document.fonts.load('58px "Finale Jazz"', '\uE062'),
+    document.fonts.load('48px "Finale Jazz"', '\uE0A2')
+  ]).then(() => {
+    refreshMusicFontReady();
+    renderVisualizers();
+  }).catch(() => {});
+
+  if (typeof document.fonts.ready?.then === 'function') {
+    document.fonts.ready.then(() => {
+      refreshMusicFontReady();
+      renderVisualizers();
+    }).catch(() => {});
+  }
+}
+
 function startApp() {
   appStarted = true;
   if (startOverlayEl) {
@@ -590,6 +624,17 @@ function drawKeyboardTriggerLabel(ctx, text, centerX, centerY, ratio, isBlackKey
 }
 
 function drawSketchWholeNote(ctx, x, y, ratio, seed) {
+  if (musicFontReady) {
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = `${52 * ratio}px ${JAZZ_MUSIC_FONT_STACK}`;
+    ctx.fillStyle = '#233247';
+    ctx.fillText('\uE0A2', x, y); // SMuFL whole-note notehead
+    ctx.restore();
+    return;
+  }
+
   const outerRx = 9.7 * ratio;
   const outerRy = 6.9 * ratio;
   const points = 18;
@@ -673,10 +718,10 @@ function drawGrandStaff(activeNotes) {
   ctx.fillStyle = '#2f4057';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.font = `${40 * ratio}px ${JAZZ_MUSIC_FONT_STACK}`;
-  ctx.fillText('𝄞', clefX, trebleCenterY + 1.5 * ratio);
-  ctx.font = `${34 * ratio}px ${JAZZ_MUSIC_FONT_STACK}`;
-  ctx.fillText('𝄢', clefX, bassCenterY + 1.5 * ratio);
+  ctx.font = `${62 * ratio}px ${JAZZ_MUSIC_FONT_STACK}`;
+  ctx.fillText(musicFontReady ? '\uE050' : '𝄞', clefX, trebleCenterY + 1.5 * ratio);
+  ctx.font = `${58 * ratio}px ${JAZZ_MUSIC_FONT_STACK}`;
+  ctx.fillText(musicFontReady ? '\uE062' : '𝄢', clefX, bassCenterY + 1.5 * ratio);
   ctx.textAlign = 'left';
   ctx.textBaseline = 'alphabetic';
 
@@ -735,7 +780,7 @@ function drawGrandStaff(activeNotes) {
 
     if (accidental) {
       ctx.fillStyle = '#2d3e57';
-      ctx.font = `${14 * ratio}px ${JAZZ_TEXT_FONT_STACK}`;
+      ctx.font = `${14 * ratio}px ${JAZZ_MUSIC_FONT_STACK}`;
       ctx.textAlign = 'right';
       ctx.fillText(accidental, accidentalColumnX, y + 5 * ratio);
       ctx.textAlign = 'left';
@@ -2122,4 +2167,7 @@ if (!appStarted && startOverlayEl) {
 
 renderInputs();
 setSettingsOpen(false);
+if (typeof document !== 'undefined') {
+  primeMusicFonts();
+}
 updateChordDisplay();
