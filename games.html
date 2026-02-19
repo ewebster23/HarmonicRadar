@@ -427,6 +427,7 @@
         font-size: 0.95rem;
       }
     }
+
   </style>
 </head>
 <body>
@@ -462,7 +463,7 @@
   <main class="game-app">
     <section class="score-area">
       <div class="game-title">Note Hunter</div>
-      <p class="prompt">Play the note shown on the staff (MIDI or laptop keys)</p>
+      <p class="prompt">Play the note shown on the staff (MIDI, laptop keys, or on-screen keyboard)</p>
       <div id="staffWrap" class="staff-wrap result-neutral">
         <canvas id="staffCanvas" class="staff-canvas" width="1360" height="460"></canvas>
       </div>
@@ -505,6 +506,8 @@
     const COMPUTER_KEY_BASE_NOTE = 60; // C4
     const KEYBOARD_NOTE_START = 36; // C2
     const KEYBOARD_NOTE_END = 96; // C7
+    const MOBILE_KEYBOARD_NOTE_START = 60; // C4
+    const MOBILE_KEYBOARD_NOTE_END = 72; // C5
     const AUTO_NEXT_DELAY_MS = 900;
     const STAFF_STEP_MAP = {
       0: { stepOffset: 0, accidental: '' }, // C
@@ -542,6 +545,7 @@
     const noteToComputerKey = new Map(
       [...computerKeyToNote.entries()].map(([key, noteNumber]) => [noteNumber, key.toUpperCase()])
     );
+    const activePointerNotes = new Map();
 
     let typingSoundEnabled = false;
     let audioContext = null;
@@ -574,6 +578,24 @@
 
     function isBlackKey(noteNumber) {
       return !WHITE_PITCH_CLASSES.has(normalizePitchClass(noteNumber));
+    }
+
+    function getKeyboardNoteRange() {
+      if (
+        typeof window !== 'undefined'
+        && typeof window.matchMedia === 'function'
+        && window.matchMedia('(max-width: 760px)').matches
+      ) {
+        return {
+          start: MOBILE_KEYBOARD_NOTE_START,
+          end: MOBILE_KEYBOARD_NOTE_END
+        };
+      }
+
+      return {
+        start: KEYBOARD_NOTE_START,
+        end: KEYBOARD_NOTE_END
+      };
     }
 
     function resizeCanvasForDisplay(canvas) {
@@ -809,7 +831,7 @@
       const strokeColor = colors && colors.stroke ? colors.stroke : '#233247';
       const fillColor = colors && colors.fill ? colors.fill : strokeColor;
       const glyph = '\uE0A2'; // SMuFL whole-note notehead
-      const fontSize = 52 * ratio;
+      const fontSize = 56 * ratio;
 
       ctx.save();
       ctx.textAlign = 'center';
@@ -823,8 +845,8 @@
     function drawFallbackWholeNote(ctx, x, y, ratio, colors = null) {
       const strokeColor = colors && colors.stroke ? colors.stroke : '#233247';
       const fillColor = colors && colors.fill ? colors.fill : '#fff7ea';
-      const rx = 11.2 * ratio;
-      const ry = 7.8 * ratio;
+      const rx = 12.0 * ratio;
+      const ry = 8.4 * ratio;
 
       ctx.save();
       ctx.translate(x, y);
@@ -1035,7 +1057,8 @@
       ctx.fillStyle = '#fff8eb';
       ctx.fillRect(0, 0, width, height);
 
-      const whiteCount = getWhiteKeyCount(KEYBOARD_NOTE_START, KEYBOARD_NOTE_END);
+      const { start: rangeStart, end: rangeEnd } = getKeyboardNoteRange();
+      const whiteCount = getWhiteKeyCount(rangeStart, rangeEnd);
       const whiteWidth = width / whiteCount;
       const blackWidth = whiteWidth * 0.62;
       const blackHeight = height * 0.58;
@@ -1043,7 +1066,7 @@
       const keyLabelPositions = new Map();
       let whiteIndex = 0;
 
-      for (let note = KEYBOARD_NOTE_START; note <= KEYBOARD_NOTE_END; note += 1) {
+      for (let note = rangeStart; note <= rangeEnd; note += 1) {
         if (isBlackKey(note)) {
           continue;
         }
@@ -1070,12 +1093,12 @@
         whiteIndex += 1;
       }
 
-      for (let note = KEYBOARD_NOTE_START; note <= KEYBOARD_NOTE_END; note += 1) {
+      for (let note = rangeStart; note <= rangeEnd; note += 1) {
         if (!isBlackKey(note)) {
           continue;
         }
 
-        const nextWhiteIndex = getWhiteKeyCount(KEYBOARD_NOTE_START, note);
+        const nextWhiteIndex = getWhiteKeyCount(rangeStart, note);
         const x = nextWhiteIndex * whiteWidth - blackWidth / 2;
         keyLabelPositions.set(note, { x: x + blackWidth / 2 });
         ctx.fillStyle = activeSet.has(note) ? '#de7a42' : '#1a2636';
@@ -1144,8 +1167,147 @@
 
     function handleNoteOff(noteNumber) {
       decrementNote(noteNumber);
-      stopTypingSound(noteNumber);
+      if (!noteCounts.has(noteNumber)) {
+        stopTypingSound(noteNumber);
+      }
       renderVisuals();
+    }
+
+    function getKeyboardCanvasPointFromEvent(event) {
+      if (!keyboardCanvasEl || typeof keyboardCanvasEl.getBoundingClientRect !== 'function') {
+        return null;
+      }
+
+      const rect = keyboardCanvasEl.getBoundingClientRect();
+      if (!rect.width || !rect.height) {
+        return null;
+      }
+
+      const x = (event.clientX - rect.left) * (keyboardCanvasEl.width / rect.width);
+      const y = (event.clientY - rect.top) * (keyboardCanvasEl.height / rect.height);
+      return { x, y };
+    }
+
+    function getKeyboardNoteFromCanvasPosition(x, y) {
+      if (!keyboardCanvasEl) {
+        return null;
+      }
+
+      const width = keyboardCanvasEl.width;
+      const height = keyboardCanvasEl.height;
+      if (x < 0 || x > width || y < 0 || y > height) {
+        return null;
+      }
+
+      const { start: rangeStart, end: rangeEnd } = getKeyboardNoteRange();
+      const whiteCount = getWhiteKeyCount(rangeStart, rangeEnd);
+      const whiteWidth = width / whiteCount;
+      const blackWidth = whiteWidth * 0.62;
+      const blackHeight = height * 0.58;
+
+      if (y <= blackHeight) {
+        for (let note = rangeStart; note <= rangeEnd; note += 1) {
+          if (!isBlackKey(note)) {
+            continue;
+          }
+          const nextWhiteIndex = getWhiteKeyCount(rangeStart, note);
+          const keyX = nextWhiteIndex * whiteWidth - blackWidth / 2;
+          if (x >= keyX && x <= keyX + blackWidth) {
+            return note;
+          }
+        }
+      }
+
+      let whiteIndex = 0;
+      for (let note = rangeStart; note <= rangeEnd; note += 1) {
+        if (isBlackKey(note)) {
+          continue;
+        }
+        const keyX = whiteIndex * whiteWidth;
+        if (x >= keyX && x <= keyX + whiteWidth) {
+          return note;
+        }
+        whiteIndex += 1;
+      }
+
+      return null;
+    }
+
+    function setPointerNote(pointerId, nextNote) {
+      const previousNote = activePointerNotes.get(pointerId);
+      const prevIsNote = typeof previousNote === 'number';
+      const nextIsNote = typeof nextNote === 'number';
+
+      if (prevIsNote && nextIsNote && previousNote === nextNote) {
+        return;
+      }
+
+      if (prevIsNote) {
+        handleNoteOff(previousNote);
+      }
+
+      if (nextIsNote) {
+        activePointerNotes.set(pointerId, nextNote);
+        handleNoteOn(nextNote);
+      } else {
+        activePointerNotes.delete(pointerId);
+      }
+    }
+
+    function releasePointerNote(pointerId) {
+      if (!activePointerNotes.has(pointerId)) {
+        return;
+      }
+      setPointerNote(pointerId, null);
+    }
+
+    function releasePointerNotes() {
+      for (const pointerId of [...activePointerNotes.keys()]) {
+        releasePointerNote(pointerId);
+      }
+    }
+
+    function handleKeyboardPointerDown(event) {
+      if (event.pointerType === 'mouse' && event.button !== 0) {
+        return;
+      }
+
+      resizeCanvasForDisplay(keyboardCanvasEl);
+      const point = getKeyboardCanvasPointFromEvent(event);
+      if (!point) {
+        return;
+      }
+
+      const note = getKeyboardNoteFromCanvasPosition(point.x, point.y);
+      if (typeof note !== 'number') {
+        return;
+      }
+
+      event.preventDefault();
+      if (typeof keyboardCanvasEl.setPointerCapture === 'function') {
+        try {
+          keyboardCanvasEl.setPointerCapture(event.pointerId);
+        } catch (_) {
+          // Continue without pointer capture.
+        }
+      }
+      setPointerNote(event.pointerId, note);
+    }
+
+    function handleKeyboardPointerMove(event) {
+      if (!activePointerNotes.has(event.pointerId)) {
+        return;
+      }
+
+      resizeCanvasForDisplay(keyboardCanvasEl);
+      const point = getKeyboardCanvasPointFromEvent(event);
+      const nextNote = point ? getKeyboardNoteFromCanvasPosition(point.x, point.y) : null;
+      event.preventDefault();
+      setPointerNote(event.pointerId, nextNote);
+    }
+
+    function handleKeyboardPointerUp(event) {
+      releasePointerNote(event.pointerId);
     }
 
     function handleMidiMessage(event) {
@@ -1340,8 +1502,20 @@
 
     window.addEventListener('keydown', handleComputerKeyDown);
     window.addEventListener('keyup', handleComputerKeyUp);
-    window.addEventListener('blur', releaseComputerKeys);
+    window.addEventListener('blur', () => {
+      releasePointerNotes();
+      releaseComputerKeys();
+    });
     window.addEventListener('resize', renderVisuals);
+
+    keyboardCanvasEl.style.touchAction = 'none';
+    keyboardCanvasEl.style.cursor = 'pointer';
+    keyboardCanvasEl.addEventListener('pointerdown', handleKeyboardPointerDown);
+    keyboardCanvasEl.addEventListener('pointermove', handleKeyboardPointerMove);
+    keyboardCanvasEl.addEventListener('pointerup', handleKeyboardPointerUp);
+    keyboardCanvasEl.addEventListener('pointercancel', handleKeyboardPointerUp);
+    keyboardCanvasEl.addEventListener('lostpointercapture', handleKeyboardPointerUp);
+    keyboardCanvasEl.addEventListener('contextmenu', (event) => event.preventDefault());
 
     const supportsWebAudio = Boolean(window.AudioContext || window.webkitAudioContext);
     typingSoundToggleEl.checked = false;
