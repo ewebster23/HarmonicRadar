@@ -1,0 +1,450 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Harmonic Radar</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Cabin+Sketch:wght@700&family=Schoolbell&display=swap');
+
+    :root {
+      color-scheme: light;
+      --paper: #fff8e8;
+      --paper-shadow: #f4e5c8;
+      --ink: #2d3340;
+      --ink-soft: #565f70;
+      --line: #e4d1ab;
+      --line-strong: #d1b783;
+      --accent: #d47b2e;
+      --accent-deep: #9d5118;
+      --ok: #1f8f59;
+      --warn: #a95c1d;
+    }
+
+    * { box-sizing: border-box; }
+
+    html,
+    body {
+      width: 100%;
+      height: 100%;
+    }
+
+    body {
+      margin: 0;
+      font-family: 'Schoolbell', 'Comic Sans MS', cursive;
+      color: var(--ink);
+      background: var(--paper);
+      overflow: hidden;
+      position: relative;
+    }
+
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      opacity: 0.24;
+      background:
+        repeating-linear-gradient(
+          to bottom,
+          transparent 0,
+          transparent 19px,
+          rgba(130, 150, 173, 0.15) 19px,
+          rgba(130, 150, 173, 0.15) 20px
+        );
+    }
+
+    .settings-toggle {
+      position: fixed;
+      top: 0.65rem;
+      right: 0.72rem;
+      z-index: 34;
+      width: 56px;
+      height: 56px;
+      border-radius: 999px;
+      border: 1px solid rgba(46, 31, 8, 0.42);
+      font-size: 2rem;
+      line-height: 1;
+      font-family: 'Cabin Sketch', 'Schoolbell', cursive;
+      color: #fff;
+      background: linear-gradient(145deg, var(--accent), var(--accent-deep));
+      cursor: pointer;
+      box-shadow: 0 3px 0 rgba(30, 19, 4, 0.28);
+      transform: rotate(-9deg);
+    }
+
+    .settings-backdrop {
+      position: fixed;
+      inset: 0;
+      z-index: 30;
+      background: rgba(38, 47, 62, 0.28);
+    }
+
+    .settings-panel {
+      position: fixed;
+      top: 0;
+      right: 0;
+      z-index: 35;
+      width: min(350px, 90vw);
+      height: 100dvh;
+      padding: 1rem 0.9rem 0.95rem;
+      background: var(--paper);
+      border-left: 2px dashed var(--line-strong);
+      box-shadow: -12px 0 28px rgba(48, 55, 72, 0.12);
+      transform: translateX(104%);
+      transition: transform 180ms ease;
+      display: grid;
+      grid-template-rows: auto 1fr;
+      gap: 0.7rem;
+      overflow: hidden;
+    }
+
+    .settings-panel.open {
+      transform: translateX(0);
+    }
+
+    .settings-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.4rem;
+    }
+
+    .settings-title {
+      margin: 0;
+      font-family: 'Cabin Sketch', 'Schoolbell', cursive;
+      font-size: 1.55rem;
+      letter-spacing: 0.01em;
+      color: #22314a;
+    }
+
+    .settings-close {
+      border: 1px solid rgba(46, 31, 8, 0.42);
+      border-radius: 999px;
+      background: #fff8ef;
+      color: #4d5f77;
+      width: 34px;
+      height: 34px;
+      font-size: 1.1rem;
+      line-height: 1;
+      font-family: 'Schoolbell', cursive;
+      cursor: pointer;
+    }
+
+    .settings-body {
+      min-height: 0;
+      overflow: auto;
+      display: grid;
+      align-content: start;
+      gap: 0.65rem;
+    }
+
+    .connect-btn {
+      justify-self: start;
+      border: 1px solid rgba(46, 31, 8, 0.45);
+      border-radius: 999px;
+      padding: 0.34rem 0.72rem;
+      font-size: 0.95rem;
+      font-family: 'Schoolbell', cursive;
+      font-weight: 700;
+      color: #fff;
+      background: linear-gradient(145deg, var(--accent), var(--accent-deep));
+      cursor: pointer;
+      box-shadow: 0 2px 0 rgba(30, 19, 4, 0.25);
+    }
+
+    .connect-btn:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+
+    .status {
+      font-size: 0.95rem;
+      font-weight: 700;
+    }
+
+    .status.ok { color: var(--ok); }
+    .status.warn { color: var(--warn); }
+
+    .midi-info {
+      margin: 0;
+      font-size: 0.9rem;
+      color: var(--ink-soft);
+      line-height: 1.25;
+    }
+
+    .keymap {
+      border-top: 1px dashed var(--line);
+      border-bottom: 1px dashed var(--line);
+      padding: 0.35rem 0;
+    }
+
+    .inputs-label {
+      font-size: 0.92rem;
+      color: #4e5e75;
+      margin-bottom: 0.1rem;
+    }
+
+    .keymap-text {
+      margin: 0;
+      font-size: 0.86rem;
+      color: var(--ink-soft);
+      line-height: 1.25;
+    }
+
+    .inputs {
+      margin: 0;
+      padding-left: 1rem;
+      font-size: 0.86rem;
+      line-height: 1.2;
+      color: var(--ink-soft);
+      max-height: 34vh;
+      overflow: auto;
+    }
+
+    .app {
+      width: 100vw;
+      height: 100dvh;
+      display: grid;
+      grid-template-rows: 1fr auto;
+      gap: 0.28rem;
+      padding: 0.5rem 0.8rem 0.28rem;
+    }
+
+    .score-area {
+      min-height: 0;
+      width: min(1460px, 100%);
+      margin: 0 auto;
+      display: grid;
+      grid-template-rows: auto auto 1fr;
+      gap: 0.24rem;
+      overflow: hidden;
+      padding-top: 0.1rem;
+    }
+
+    .chord-line {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr);
+      align-items: center;
+      gap: 0.65rem;
+      min-width: 0;
+      padding-right: 4.1rem;
+    }
+
+    .clef-pair {
+      display: grid;
+      line-height: 0.9;
+      color: #2f3d51;
+      user-select: none;
+    }
+
+    .clef-pair .treble {
+      font-family: 'Cabin Sketch', 'Schoolbell', cursive;
+      font-size: 2.6rem;
+    }
+
+    .clef-pair .bass {
+      font-family: 'Cabin Sketch', 'Schoolbell', cursive;
+      font-size: 2.35rem;
+      transform: translateY(-4px);
+    }
+
+    .chord-copy {
+      min-width: 0;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: baseline;
+      gap: 0.35rem 0.68rem;
+    }
+
+    .chord-name {
+      font-family: 'Cabin Sketch', 'Schoolbell', cursive;
+      font-size: clamp(3rem, 8.9vw, 6rem);
+      line-height: 0.9;
+      color: #1d2940;
+      text-wrap: balance;
+      overflow-wrap: anywhere;
+    }
+
+    .inversion {
+      font-size: 0.86rem;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+      color: #4b5f7f;
+    }
+
+    .chord-detail {
+      margin: 0;
+      font-size: 0.95rem;
+      color: var(--ink-soft);
+      line-height: 1.2;
+      min-height: 1.2em;
+      padding-right: 4.1rem;
+    }
+
+    .alternatives-row {
+      display: flex;
+      align-items: baseline;
+      gap: 0.44rem;
+      flex-wrap: wrap;
+      min-width: 0;
+      padding-right: 4.1rem;
+    }
+
+    .alternatives-label {
+      font-size: 0.95rem;
+      color: #4d5c74;
+      white-space: nowrap;
+    }
+
+    .alternatives {
+      margin: 0;
+      padding: 0;
+      list-style: none;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.3rem;
+      font-size: 0.94rem;
+      color: #2f3f58;
+      min-width: 0;
+    }
+
+    .alternatives li::after {
+      content: '·';
+      margin-left: 0.3rem;
+      opacity: 0.45;
+    }
+
+    .alternatives li:last-child::after {
+      content: '';
+      margin: 0;
+    }
+
+    .staff-wrap {
+      min-height: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .staff-canvas {
+      width: min(100%, 1120px);
+      height: auto;
+      display: block;
+      background: var(--paper);
+      border: 0;
+    }
+
+    .keyboard-row {
+      margin-left: calc(50% - 50vw);
+      margin-right: calc(50% - 50vw);
+      border-top: 1px dashed var(--line-strong);
+      padding-top: 0.08rem;
+    }
+
+    .keyboard-canvas {
+      width: 100vw;
+      height: auto;
+      display: block;
+      background: var(--paper);
+      border-top: 1px solid var(--paper-shadow);
+    }
+
+    @media (max-width: 1080px) {
+      body {
+        overflow-y: auto;
+      }
+
+      .app {
+        height: auto;
+        min-height: 100dvh;
+        padding-right: 0.45rem;
+        padding-left: 0.45rem;
+      }
+
+      .chord-line,
+      .chord-detail,
+      .alternatives-row {
+        padding-right: 3.6rem;
+      }
+
+      .keyboard-row {
+        margin: 0;
+      }
+
+      .keyboard-canvas {
+        width: 100%;
+      }
+
+      .settings-toggle {
+        width: 50px;
+        height: 50px;
+        font-size: 1.8rem;
+      }
+    }
+  </style>
+</head>
+<body>
+  <button id="settingsToggle" class="settings-toggle" aria-label="Open settings">⚙</button>
+  <div id="settingsBackdrop" class="settings-backdrop" hidden></div>
+
+  <aside id="settingsPanel" class="settings-panel" aria-hidden="true">
+    <div class="settings-head">
+      <h2 class="settings-title">Settings</h2>
+      <button id="settingsClose" class="settings-close" type="button" aria-label="Close settings">✕</button>
+    </div>
+
+    <div class="settings-body">
+      <button id="connectBtn" class="connect-btn" type="button">Connect MIDI</button>
+      <div id="status" class="status warn">Not connected</div>
+      <p id="midiInfo" class="midi-info">Laptop keyboard is active. Use the keymap below.</p>
+
+      <div class="keymap">
+        <div class="inputs-label">Typing keys</div>
+        <p class="keymap-text">a w s e d f t g y h u j k o l p maps chromatically from C upward.</p>
+      </div>
+
+      <div>
+        <div class="inputs-label">MIDI inputs</div>
+        <ul id="inputsList" class="inputs">
+          <li>Not connected.</li>
+        </ul>
+      </div>
+    </div>
+  </aside>
+
+  <main class="app">
+    <section class="score-area">
+      <div class="chord-line">
+        <div class="clef-pair" aria-hidden="true">
+          <span class="treble">𝄞</span>
+          <span class="bass">𝄢</span>
+        </div>
+        <div class="chord-copy">
+          <div id="chordName" class="chord-name">(none)</div>
+          <div id="inversionBadge" class="inversion">No chord</div>
+        </div>
+      </div>
+
+      <p id="chordDetail" class="chord-detail">Hold notes to detect practical jazz/pop chord spellings.</p>
+
+      <div class="alternatives-row">
+        <div class="alternatives-label">Alternatives</div>
+        <ul id="alternativesList" class="alternatives">
+          <li>(none)</li>
+        </ul>
+      </div>
+
+      <div class="staff-wrap">
+        <canvas id="staffCanvas" class="staff-canvas" width="1120" height="430"></canvas>
+      </div>
+    </section>
+
+    <section class="keyboard-row">
+      <canvas id="keyboardCanvas" class="keyboard-canvas" width="1920" height="96"></canvas>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
