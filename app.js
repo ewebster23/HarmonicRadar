@@ -19,7 +19,9 @@ const COLOR_ORDER = [
   '9',
   '♯9',
   '11',
+  '♭5',
   '♯11',
+  '♯5',
   '♭13',
   '13',
   '♭7',
@@ -1342,6 +1344,9 @@ function classifyNonCoreInterval(interval, context) {
     if (family === 'dim') {
       return { type: 'add', token: 'add♭5' };
     }
+    if (family === 'major' && hasSeventh && !high11) {
+      return { type: 'altered', token: '♭5' };
+    }
     return { type: 'altered', token: '♯11' };
   }
 
@@ -1352,6 +1357,9 @@ function classifyNonCoreInterval(interval, context) {
   if (interval === 8) {
     if (family === 'aug') {
       return { type: 'add', token: 'add♭6' };
+    }
+    if (family === 'major' && hasSeventh && !high13) {
+      return { type: 'altered', token: '♯5' };
     }
     return { type: 'altered', token: '♭13' };
   }
@@ -1381,6 +1389,36 @@ function classifyNonCoreInterval(interval, context) {
   }
 
   return null;
+}
+
+function getDominantAltCompaction(symbol, family, naturalTokens, alteredTokens, addTokens) {
+  if (family !== 'major' || symbol !== '7') {
+    return null;
+  }
+
+  if (naturalTokens.length || addTokens.length || alteredTokens.length < 2) {
+    return null;
+  }
+
+  const allowedAltTokens = new Set(['♭9', '♯9', '♭5', '♯5', '♯11', '♭13']);
+  if (alteredTokens.some((token) => !allowedAltTokens.has(token))) {
+    return null;
+  }
+
+  const hasAlteredNinth = alteredTokens.includes('♭9') || alteredTokens.includes('♯9');
+  const hasAlteredFifth = alteredTokens.includes('♭5')
+    || alteredTokens.includes('♯5')
+    || alteredTokens.includes('♯11')
+    || alteredTokens.includes('♭13');
+
+  if (!hasAlteredNinth || !hasAlteredFifth) {
+    return null;
+  }
+
+  return {
+    symbol: '7alt',
+    colorTokens: []
+  };
 }
 
 function getFallbackFamily(intervals) {
@@ -1512,13 +1550,27 @@ function buildIntervalFallbackCandidate(rootPitchClass, activeNotes, pitchClasse
 
   let symbol = baseSymbol;
   let naturalTokens = [...new Set(naturalExtensions)].sort((a, b) => a - b).map(String);
-  const alteredTokens = [...new Set(alteredExtensions)];
+  let alteredTokens = [...new Set(alteredExtensions)];
   const addTokens = [...new Set(addExtensions)];
 
   if (symbol && symbol.includes('7') && alteredTokens.length === 0 && addTokens.length === 0 && naturalTokens.length > 0) {
     const highestNatural = naturalTokens.includes('13') ? 13 : naturalTokens.includes('11') ? 11 : 9;
     symbol = promoteExtensionSymbol(symbol, inversionFamily, highestNatural);
     naturalTokens = [];
+  }
+
+  let usedDominantAlt = false;
+  const dominantAltCompaction = getDominantAltCompaction(
+    symbol,
+    inversionFamily,
+    naturalTokens,
+    alteredTokens,
+    addTokens
+  );
+  if (dominantAltCompaction) {
+    symbol = dominantAltCompaction.symbol;
+    alteredTokens = dominantAltCompaction.colorTokens;
+    usedDominantAlt = true;
   }
 
   const colorTokens = sortColorTokens([...naturalTokens, ...alteredTokens, ...addTokens]);
@@ -1551,6 +1603,9 @@ function buildIntervalFallbackCandidate(rootPitchClass, activeNotes, pitchClasse
 
   if (fallbackFamily === 'major-shell' || fallbackFamily === 'minor-shell') {
     score += 6;
+  }
+  if (usedDominantAlt) {
+    score += 7;
   }
 
   const inversionLabel = bassPitchClass === rootPitchClass
@@ -1659,7 +1714,7 @@ function buildRootCandidate(rootPitchClass, activeNotes, pitchClasses, bassPitch
 
   let naturalTokens = [...new Set(naturalExtensions)].sort((a, b) => a - b).map(String);
   let addTokens = [...new Set(addExtensions)];
-  const alteredTokens = [...new Set(alteredExtensions)];
+  let alteredTokens = [...new Set(alteredExtensions)];
 
   if (!hasSeventh && alteredTokens.length === 0) {
     const hasAdd9 = addTokens.includes('add9');
@@ -1676,6 +1731,20 @@ function buildRootCandidate(rootPitchClass, activeNotes, pitchClasses, bassPitch
     const highestNatural = naturalTokens.includes('13') ? 13 : naturalTokens.includes('11') ? 11 : 9;
     symbol = promoteExtensionSymbol(symbol, family, highestNatural);
     naturalTokens = [];
+  }
+
+  let usedDominantAlt = false;
+  const dominantAltCompaction = getDominantAltCompaction(
+    symbol,
+    family,
+    naturalTokens,
+    alteredTokens,
+    addTokens
+  );
+  if (dominantAltCompaction) {
+    symbol = dominantAltCompaction.symbol;
+    alteredTokens = dominantAltCompaction.colorTokens;
+    usedDominantAlt = true;
   }
 
   const colorTokens = sortColorTokens([...naturalTokens, ...alteredTokens, ...addTokens]);
@@ -1740,6 +1809,9 @@ function buildRootCandidate(rootPitchClass, activeNotes, pitchClasses, bassPitch
 
   if (symbol === '7sus2') {
     score -= 8;
+  }
+  if (usedDominantAlt) {
+    score += 7;
   }
 
   if ((family === 'major' || family === 'minor') && !tertian.hasFifth) {
